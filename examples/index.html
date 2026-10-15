@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>canvas-comments-kit example</title>
+<style>
+  body { margin: 0; font: 14px system-ui, sans-serif; background: #F1EDE3; color: #221F1A; }
+  header { display: flex; gap: 10px; align-items: center; padding: 10px 14px; border-bottom: 1px solid #E0DCD1; background: #fff; flex-wrap: wrap; }
+  header b { margin-right: auto; }
+  button, select { font: inherit; height: 30px; padding: 0 10px; border-radius: 7px; border: 1px solid #D9D4C6; background: #fff; cursor: pointer; }
+  #stage { position: relative; overflow: hidden; height: calc(100vh - 52px); }
+  svg { width: 100%; height: 100%; display: block; }
+  .shape { fill: #fff; stroke: #2B2722; stroke-width: 2; }
+  .shape.hot { stroke: #2563a8; stroke-width: 3; }
+  #log { position: fixed; left: 12px; bottom: 12px; font: 12px ui-monospace, monospace; background: #fff; border: 1px solid #E0DCD1; border-radius: 8px; padding: 6px 9px; display: none; }
+</style>
+</head>
+<body>
+<header>
+  <b>canvas-comments-kit</b>
+  <label>Backend
+    <select id="backend">
+      <option value="memory">memory (realtime)</option>
+      <option value="local">localStorage</option>
+      <option value="flaky">flaky (fails every other write)</option>
+    </select>
+  </label>
+  <button id="other" title="Reply as someone else, straight into the backend">Simulate a teammate</button>
+  <button id="cmt-btn">Comment</button>
+</header>
+<div id="stage">
+  <svg id="scene" viewBox="0 0 800 500">
+    <rect class="shape" data-ref="box" data-label="Box" x="90" y="90" width="200" height="140" rx="8"/>
+    <circle class="shape" data-ref="circle" data-label="Circle" cx="520" cy="170" r="80"/>
+    <path class="shape" data-ref="tri" data-label="Triangle" d="M330 420 L430 270 L530 420 Z"/>
+  </svg>
+</div>
+<div id="log"></div>
+
+<script type="module">
+import { createComments, memoryBackend, localStorageBackend, screenOffset } from '../src/index.js'
+
+const svg = document.getElementById('scene'), stage = document.getElementById('stage')
+const log = document.getElementById('log')
+
+// World = SVG user units. project() maps them to stage pixels through the live CTM.
+const project = (x, y) => {
+  const m = svg.getScreenCTM(), r = stage.getBoundingClientRect()
+  return { sx: m.a * x + m.c * y + m.e - r.left, sy: m.b * x + m.d * y + m.f - r.top }
+}
+const toWorld = (cx, cy) => new DOMPoint(cx, cy).matrixTransform(svg.getScreenCTM().inverse())
+
+function resolveAnchor(cx, cy) {
+  const { x, y } = toWorld(cx, cy)
+  const el = document.elementFromPoint(cx, cy)
+  const shape = el && el.closest && el.closest('.shape')
+  if (!shape) return { kind: 'point', x, y, label: 'Open space' }
+  const b = shape.getBBox(), tx = b.x + b.width / 2, ty = b.y + b.height / 2
+  const r = stage.getBoundingClientRect()
+  const off = screenOffset(project, cx - r.left, cy - r.top, tx, ty)
+  return { kind: 'shape', x, y, ref: shape.dataset.ref, label: shape.dataset.label, tx, ty, off }
+}
+
+// Backends. Every one is just { store } here — identity/permissions are optional.
+const memory = memoryBackend({ threads: { demo: [{
+  id: 'seed', resolved: false, ts: Date.now() - 3600e3,
+  anchor: { kind: 'shape', x: 640, y: 90, ref: 'circle', label: 'Circle', tx: 520, ty: 170, off: { dx: 17, dy: -17 } },
+  messages: [{ id: 'm0', author: 'Ada', text: 'Should this be a rounded rect instead?', ts: Date.now() - 3600e3 }],
+}] } })
+const flaky = (() => {
+  const inner = memoryBackend().store; let n = 0
+  const maybeFail = fn => async (...a) => { if (n++ % 2) throw new Error('simulated network error'); return fn(...a) }
+  return { store: { ...inner, addThread: maybeFail(inner.addThread), addReply: maybeFail(inner.addReply) } }
+})()
+const backends = { memory, local: localStorageBackend(), flaky }
+
+const viewCbs = []
+const comments = createComments()
+comments.init({
+  context: 'demo',
+  surface: svg, stage,
+  button: document.getElementById('cmt-btn'),
+  project, resolveAnchor,
+  onViewChange: cb => viewCbs.push(cb),
+  backend: backends.memory,
+  onError: (err, op) => { log.style.display = 'block'; log.textContent = `${op} failed: ${err.message} — your text is still in the box, try again` },
+})
+window.__comments = comments
+new ResizeObserver(() => viewCbs.forEach(cb => cb())).observe(stage)
+svg.addEventListener('click', e => { if (comments.isPlacing()) comments.place(e.clientX, e.clientY) })
+
+document.getElementById('backend').onchange = e => { log.style.display = 'none'; comments.setBackend(backends[e.target.value]) }
+document.getElementById('other').onclick = async () => {
+  const b = backends[document.getElementById('backend').value]
+  const [t] = await b.store.list('demo')
+  if (!t) { log.style.display = 'block'; log.textContent = 'Add a comment first.'; return }
+  await b.store.addReply(t.id, { id: 'r' + Date.now(), author: 'Grace', text: 'Looks good to me.', ts: Date.now() }, 'demo')
+  if (!b.store.subscribe) comments.setContext()   // pull-only backends need a refresh
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,25 @@
+{
+  "name": "canvas-comments-kit",
+  "version": "0.1.0",
+  "description": "Drop-in threaded-comment overlay for canvas / SVG apps, with a bring-your-own backend.",
+  "type": "module",
+  "main": "./src/index.js",
+  "types": "./types/index.d.ts",
+  "exports": {
+    ".": { "types": "./types/index.d.ts", "default": "./src/index.js" },
+    "./backend": { "types": "./types/index.d.ts", "default": "./src/backend.js" },
+    "./backends/local": { "types": "./types/index.d.ts", "default": "./src/backends/local.js" },
+    "./backends/memory": { "types": "./types/index.d.ts", "default": "./src/backends/memory.js" },
+    "./backends/http": { "types": "./types/index.d.ts", "default": "./src/backends/http.js" },
+    "./testing": { "types": "./types/index.d.ts", "default": "./src/testing.js" },
+    "./comments.css": "./src/comments.css"
+  },
+  "files": ["src", "types"],
+  "sideEffects": ["./src/comments.js", "./src/index.js", "*.css"],
+  "scripts": {
+    "test": "node --test test/",
+    "build:css": "node scripts/build-css.mjs",
+    "check:css": "node scripts/build-css.mjs --check"
+  },
+  "keywords": ["comments", "annotations", "canvas", "svg", "overlay", "collaboration"]
+}
